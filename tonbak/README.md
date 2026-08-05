@@ -9,17 +9,42 @@ all.
 
 ---
 
-## Install on iPhone
+## Get it on your phone
 
-1. Open the app URL in **Safari** (it must be Safari — Chrome on iOS cannot
-   install web apps).
-2. Tap the **Share** button (the square with the arrow).
-3. Scroll down and tap **Add to Home Screen**.
-4. Tap **Add**.
+### Option A — the single file (no server, nothing to set up)
 
-It now behaves like any other app: own icon, full-screen, appears in the app
-switcher. Open it once with a signal and everything is cached — after that it
-runs in airplane mode.
+`dist/tonbak.html` is the whole app in one self-contained file: all code,
+styles and the icon inlined, no network of any kind. Rebuild it any time with:
+
+```sh
+node build-standalone.js
+```
+
+To use it on an iPhone, get the file onto the phone by any route — AirDrop,
+email it to yourself, or drop it in iCloud Drive / Dropbox — then:
+
+1. Open the **Files** app and tap `tonbak.html`. It opens in Safari.
+2. Tap **Share** ▸ **Add to Home Screen** for full-screen play with its own icon.
+
+That's it. Everything runs on-device, so it works in airplane mode from the
+first launch.
+
+### Option B — serve it over your network (full PWA)
+
+This is the better long-term setup: a real installed PWA with a service
+worker and proper offline caching.
+
+```sh
+npm start
+```
+
+Then open `http://<your-computer's-LAN-IP>:8080` in Safari on your phone,
+with both devices on the same Wi-Fi, and Add to Home Screen.
+
+One caveat: service workers require a secure context, so over plain HTTP on a
+LAN IP the offline cache will not register — the app still runs fine, it just
+re-fetches on reload. Over HTTPS (or from `localhost`) you get the full
+offline behaviour.
 
 **On Android**, Chrome shows an "Install app" prompt in the address-bar menu.
 
@@ -126,8 +151,14 @@ js/data/
   dastgah.js            pitches, quarter tones, dastgāh presets
 sw.js                   offline precache
 server.js               static host
+build-standalone.js     bundles everything into dist/tonbak.html
 tools-make-icons.py     regenerates the app icons
 ```
+
+The standalone bundler wraps each module in an IIFE and wires them through a
+small registry rather than concatenating them flat — `ring` is a function in
+`synth.js` and an object in `app.js`, and a flat concatenation would collide
+on the first name either file reuses.
 
 ### Pattern notation
 
