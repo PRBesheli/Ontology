@@ -1,0 +1,204 @@
+# Tonbak · تنبک
+
+A Persian tonbak rhythm trainer you install on your phone. Pick a cycle, set
+the tempo, and play your own instrument over it.
+
+Built as an installable PWA, so it goes on an iPhone home screen with its own
+icon, runs full-screen with no browser chrome, and works with no network at
+all.
+
+---
+
+## Get it on your phone
+
+### Option A — the single file (no server, nothing to set up)
+
+`dist/tonbak.html` is the whole app in one self-contained file: all code,
+styles and the icon inlined, no network of any kind. Rebuild it any time with:
+
+```sh
+node build-standalone.js
+```
+
+To use it on an iPhone, get the file onto the phone by any route — AirDrop,
+email it to yourself, or drop it in iCloud Drive / Dropbox — then:
+
+1. Open the **Files** app and tap `tonbak.html`. It opens in Safari.
+2. Tap **Share** ▸ **Add to Home Screen** for full-screen play with its own icon.
+
+That's it. Everything runs on-device, so it works in airplane mode from the
+first launch.
+
+### Option B — serve it over your network (full PWA)
+
+This is the better long-term setup: a real installed PWA with a service
+worker and proper offline caching.
+
+```sh
+npm start
+```
+
+Then open `http://<your-computer's-LAN-IP>:8080` in Safari on your phone,
+with both devices on the same Wi-Fi, and Add to Home Screen.
+
+One caveat: service workers require a secure context, so over plain HTTP on a
+LAN IP the offline cache will not register — the app still runs fine, it just
+re-fetches on reload. Over HTTPS (or from `localhost`) you get the full
+offline behaviour.
+
+**On Android**, Chrome shows an "Install app" prompt in the address-bar menu.
+
+### Why this isn't an `.ipa`
+
+Producing an installable `.ipa` requires macOS, Xcode, and a paid Apple
+Developer account to sign the binary — Apple does not allow unsigned apps on
+a device. A PWA is the only route onto an iPhone that skips all three, and
+for an audio app it gives up nothing that matters: the Web Audio API drives
+the same low-latency audio path a native app would.
+
+---
+
+## What's in it
+
+### The strokes
+
+Nothing is sampled. Each stroke is synthesised from a physical model of the
+drum — the coupled membrane modes and cavity resonance of a goat-skin head
+over a hollow mulberry body — rendered into buffers at launch.
+
+| Stroke | فارسی | Technique |
+| --- | --- | --- |
+| **Tom** | تم | Deep open tone, right hand at the centre. Drives the air cavity. |
+| **Bak** | بک | Bright rim slap, left hand. Almost no cavity coupling — dry and short. |
+| **Eshareh** | اشاره | Light index-finger tap between rim and centre. |
+| **Pelang** | پلنگ | The "leopard" — a finger snapped onto the skin. Sharp crack. |
+| **Qom** | قم | Muted low tone, hand resting on the skin. |
+| **Riz** | ریز | The roll. Fills forward to the next stroke, so its length follows the music. |
+
+Every stroke is rendered in four variants with the modal tuning and decays
+jittered, and playback cycles through them — a repeated Tom never hits the
+same spot twice, which is the difference between a drum and a drum machine.
+
+### Rhythms
+
+29 cycles, searchable by name (English or Persian), metre, style or region.
+
+- **6/8** — Shesh-o-Hasht (plain, ornamented, and with Riz), Reng, Bandari,
+  Chahār-Mezrāb, Kereshmeh, Masnavi
+- **2/4, 3/4, 4/4** — Yek-Zarbi, Do-Zarbi, Se-Zarbi, Chahār-Zarbi, Zarb-e Osul
+- **Irregular** — Lang 7/8 in both 3+2+2 and 2+2+3, Panj-Zarbi 5/8 both ways,
+  Noh-Zarbi 9/8, Dah-Zarbi 10/8, Davāzdah-Zarbi 12/8
+- **Plain metres** — bare one-stroke-per-beat patterns for 2/4 through 12/8,
+  for when you just want a metre and a tempo
+
+Grouping is first-class: 7/8 as 3+2+2 and 7/8 as 2+2+3 are separate rhythms,
+because they feel like different music. The cycle ring marks where each felt
+beat begins.
+
+These are idiomatic accompaniment patterns, not transcriptions of any one
+master's playing — regional and school-to-school variation is wide. The Build
+tab is there so you can bend any of them to what you actually play.
+
+### Playing along
+
+- **Cycle ring** — the whole bar at a glance, coloured by stroke, with a
+  playhead and group markers so you always know where you are
+- **Count-in** — one or two cycles of the felt beats before the rhythm starts
+- **Tuning drone** — sustained tonic with optional fourth, fifth or octave.
+  Supports Persian quarter tones (koron ᶲ / sori ⁄), has suggested tonics for
+  all twelve dastgāh, fine tuning in cents, and an adjustable A reference for
+  playing with an instrument that isn't at 440.
+- **Tempo trainer** — raises the tempo automatically every N cycles up to a
+  ceiling, so you can take a piece up to speed without stopping
+- **Tap tempo**, stroke mutes, and a room control
+
+### Tune
+
+No two tonbaks sound alike — head tension, shell size and how dry the skin is
+on the day all move the tone, so there is no single correct timbre to
+hard-code. Each stroke has five controls, applied live over the shipped spec
+and kept between sessions:
+
+| Control | What it moves |
+| --- | --- |
+| **Pitch** | Scales every frequency, so the drum changes size rather than going out of tune with itself. |
+| **Decay** | Scales all T60s. Short and dry through to open and resonant. |
+| **Attack** | The contact transient — the thud of finger meeting skin before the head rings. |
+| **Tone** | Tilts the mode amplitudes around 700 Hz, roughly where the ear splits "woody" from "papery". |
+| **Level** | Balance against the other strokes. Applies without re-rendering. |
+
+Changing anything but Level re-renders that stroke in place, debounced, while
+a rhythm keeps playing. **Export settings** emits only what differs from the
+shipped tuning, so the result is short enough to paste back and adopt as the
+new defaults.
+
+### Build
+
+A step grid: set pulses, unit and subdivision, edit the grouping, then tap to
+place strokes. Tapping a placed stroke cycles it accent → normal → ghost →
+off. Copy the rhythm you're currently playing as a starting point. Saved
+patterns persist locally and appear in the library alongside the built-in
+cycles.
+
+---
+
+## Running it
+
+```sh
+npm start          # serves on :8080
+```
+
+No build step and no dependencies — it is static files plus a small Node
+server that gets the MIME types right (a service worker served as
+`text/plain` will not register).
+
+Service workers require HTTPS, or `localhost` for development.
+
+## Layout
+
+```
+index.html              app shell
+css/styles.css
+js/app.js               UI wiring, views, persistence
+js/audio/
+  context.js            shared graph; iOS audio-session and interruption handling
+  synth.js              offline physical-model rendering of each stroke
+  engine.js             lookahead scheduler, Riz expansion, tempo trainer
+  drone.js              sustained drone voices
+js/data/
+  strokes.js            stroke definitions — modal frequencies, decays, noise
+  rhythms.js            the rhythm library and its pattern notation
+  dastgah.js            pitches, quarter tones, dastgāh presets
+sw.js                   offline precache
+server.js               static host
+build-standalone.js     bundles everything into dist/tonbak.html
+tools-make-icons.py     regenerates the app icons
+```
+
+The standalone bundler wraps each module in an IIFE and wires them through a
+small registry rather than concatenating them flat — `ring` is a function in
+`synth.js` and an object in `app.js`, and a flat concatenation would collide
+on the first name either file reuses.
+
+### Pattern notation
+
+Patterns are written as one token per grid step:
+
+```
+T Tom · B Bak · E Eshareh · P Pelang · Q Qom · R Riz · . rest
+```
+
+Uppercase is accented, lowercase is unaccented, and a trailing digit sets
+velocity explicitly (`b3` is a very soft Bak). Shesh-o-Hasht is:
+
+```
+T . . e b . T . . e B .
+```
+
+### A note on timing
+
+The scheduler never plays anything from a timer. A 25 ms interval looks
+about 140 ms into the future and books strokes at exact `AudioContext`
+timestamps, so the audio clock decides when a stroke happens rather than the
+JavaScript one. Measured in-browser, strokes land on the grid with zero
+deviation and nothing is ever scheduled late.

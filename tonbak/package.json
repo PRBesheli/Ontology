@@ -1,0 +1,12 @@
+{
+  "name": "tonbak",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Persian tonbak rhythm trainer — an installable PWA with physically modelled strokes.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
