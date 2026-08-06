@@ -264,6 +264,43 @@
       <p class="empty" id="stroke-empty" hidden>No stroke matches that.</p>
     </section>
 
+    <!-- ═══ TUNE ═══════════════════════════════════════════════════════ -->
+    <section class="view" id="view-tune" data-view="tune" hidden>
+      <div class="intro">
+        <h2 class="intro-title">Tune the drum</h2>
+        <p class="intro-body">
+          No two tonbaks sound alike — head tension, shell size and how dry the
+          skin is on the day all move the tone. Adjust each stroke until it
+          matches the drum you have in your ear. Changes are applied live, and
+          are kept between sessions.
+        </p>
+        <p class="intro-body">
+          Start the loop below and tune while it plays, so you hear each stroke
+          in context rather than on its own.
+        </p>
+      </div>
+
+      <div class="tune-transport">
+        <button class="tune-loop" id="tune-play-toggle" type="button">▶&nbsp; Loop while tuning</button>
+        <span class="tune-loop-name" id="tune-play-name"></span>
+      </div>
+
+      <div id="tune-list" class="tune-list"></div>
+
+      <div class="build-actions">
+        <button class="btn btn-ghost" id="tune-reset-all" type="button">Reset all</button>
+        <button class="btn btn-primary" id="tune-export" type="button">Export settings</button>
+      </div>
+
+      <div class="tune-export-box" id="tune-export-box" hidden>
+        <p class="tune-export-note">
+          Send this back and it becomes the built-in tuning. Only the values you
+          changed are listed.
+        </p>
+        <textarea class="tune-export-text" id="tune-export-text" readonly rows="10"></textarea>
+      </div>
+    </section>
+
     <!-- ═══ BUILD ══════════════════════════════════════════════════════ -->
     <section class="view" id="view-build" data-view="build" hidden>
       <div class="intro">
@@ -332,6 +369,13 @@
     <button class="tab" data-tab="sounds" role="tab" aria-selected="false" type="button">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 13v-2M8 16V8M12 19V5M16 16V8M20 13v-2"/></svg>
       <span>Sounds</span>
+    </button>
+    <button class="tab" data-tab="tune" role="tab" aria-selected="false" type="button">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M5 4v6M5 14v6M12 4v3M12 11v9M19 4v9M19 17v3"/>
+        <circle cx="5" cy="12" r="2"/><circle cx="12" cy="9" r="2"/><circle cx="19" cy="15" r="2"/>
+      </svg>
+      <span>Tune</span>
     </button>
     <button class="tab" data-tab="build" role="tab" aria-selected="false" type="button">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>

@@ -6,8 +6,8 @@
  * silently if you try.
  */
 
-import { initAudio, resumeAudio, watchInterruptions, setMasterVolume, setReverbAmount, setDroneVolume } from './audio/context.js';
-import { renderAllStrokes } from './audio/synth.js';
+import { initAudio, resumeAudio, watchInterruptions, getContext, setMasterVolume, setReverbAmount, setDroneVolume } from './audio/context.js';
+import { renderAllStrokes, renderStrokeVariants } from './audio/synth.js';
 import { RhythmEngine } from './audio/engine.js';
 import { Drone } from './audio/drone.js';
 import { STROKES, STROKE_LIST, RIZ, LETTER_TO_STROKE, CYCLE_ORDER } from './data/strokes.js';
@@ -26,6 +26,88 @@ const STROKE_TO_LETTER = Object.fromEntries(
   Object.entries(LETTER_TO_STROKE).map(([l, s]) => [s, l])
 );
 const STROKE_COLOR = (id) => (id === 'riz' ? RIZ.color : STROKES[id]?.color || '#888');
+
+/**
+ * Per-stroke tuning offsets, applied on top of the specs in strokes.js.
+ *
+ * Real tonbaks vary enormously — head tension, shell size, how dry the skin
+ * is on the day — so there is no single correct timbre to hard-code. These
+ * five controls are the ones that actually move the sound, expressed as
+ * offsets so the shipped specs stay the reference point and Reset always
+ * means something.
+ */
+const TUNE_NEUTRAL = { pitch: 0, decay: 1, attack: 1, bright: 0, level: 1 };
+
+const TUNE_CONTROLS = [
+  {
+    id: 'pitch', label: 'Pitch', min: -12, max: 12, step: 0.5, unit: 'st',
+    hint: 'Head tension — how big and how tightly tuned the drum reads.',
+    fmt: (v) => `${v > 0 ? '+' : ''}${v} st`,
+  },
+  {
+    id: 'decay', label: 'Decay', min: 0.25, max: 2.5, step: 0.05, unit: '×',
+    hint: 'How long it rings. Short and dry, or open and resonant.',
+    fmt: (v) => `${v.toFixed(2)}×`,
+  },
+  {
+    id: 'attack', label: 'Attack', min: 0, max: 3, step: 0.05, unit: '×',
+    hint: 'The thud of finger meeting skin, before the head starts ringing.',
+    fmt: (v) => `${v.toFixed(2)}×`,
+  },
+  {
+    id: 'bright', label: 'Tone', min: -1, max: 1, step: 0.05, unit: '',
+    hint: 'Dark and woody through to sharp and papery.',
+    fmt: (v) => (v === 0 ? 'neutral' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`),
+  },
+  {
+    id: 'level', label: 'Level', min: 0.2, max: 2, step: 0.05, unit: '×',
+    hint: 'Balance against the other strokes.',
+    fmt: (v) => `${v.toFixed(2)}×`,
+  },
+];
+
+/**
+ * Applies tuning offsets to a base spec. Pitch scales every frequency so the
+ * drum changes size rather than going out of tune with itself; Tone tilts the
+ * mode amplitudes around 700 Hz, which is roughly where the ear splits
+ * "woody" from "papery" on this instrument.
+ */
+function tunedSpec(base, t) {
+  const p = Math.pow(2, (t.pitch || 0) / 12);
+  const dk = t.decay ?? 1;
+  const br = t.bright ?? 0;
+  const at = t.attack ?? 1;
+
+  const scaleMode = (m) => ({
+    ...m,
+    f: m.f * p,
+    d: m.d * dk,
+    a: m.a * Math.pow(Math.max(m.f * p, 60) / 700, br * 0.6),
+  });
+
+  const spec = {
+    // Longer decays need room, or the tail is cut off mid-ring.
+    duration: base.duration * Math.max(1, Math.min(dk, 2.5)),
+    exciter: {
+      ...base.exciter,
+      tilt: Math.max(400, Math.min(18000, base.exciter.tilt * Math.pow(2.3, br))),
+    },
+    modes: (base.modes || []).map(scaleMode),
+    body: (base.body || []).map((m) => ({ ...m, f: m.f * p, d: m.d * dk })),
+  };
+
+  if (base.contact) {
+    spec.contact = {
+      ...base.contact,
+      level: base.contact.level * at * (1 + br * 0.35),
+    };
+  }
+  return spec;
+}
+
+function isNeutral(t) {
+  return TUNE_CONTROLS.every((c) => Math.abs((t[c.id] ?? TUNE_NEUTRAL[c.id]) - TUNE_NEUTRAL[c.id]) < 1e-9);
+}
 
 /** Renders '♩.' as a note plus a tight augmentation dot rather than a full stop. */
 function noteGlyph(label) {
@@ -53,6 +135,7 @@ const state = {
   build: null,
   custom: [],
   settings: { volume: 0.9, reverb: 0.4, a4: 440, wake: true },
+  tuning: {},
   droneCfg: { pc: 7, accidental: 'natural', octave: 3, interval: 'fifth', cents: 0, volume: 0.35, dastgah: 'shur' },
   trainer: { every: 4, delta: 4, max: 160, loop: false },
 };
@@ -83,6 +166,11 @@ function loadState() {
   state.countIn = store.get('countin', 0);
   state.custom = store.get('custom', []);
 
+  const savedTune = store.get('tuning', {});
+  for (const id of Object.keys(STROKES)) {
+    state.tuning[id] = { ...TUNE_NEUTRAL, ...(savedTune[id] || {}) };
+  }
+
   const last = store.get('last', null);
   if (last) {
     const found = allRhythms().find((r) => r.id === last.id);
@@ -110,7 +198,9 @@ async function boot() {
     // Yield so the label paints before the render blocks the thread.
     await new Promise((r) => setTimeout(r, 30));
 
-    const buffers = await renderAllStrokes(STROKES, ctx.sampleRate);
+    const buffers = await renderAllStrokes(STROKES, ctx.sampleRate, (id) =>
+      tunedSpec(STROKES[id].spec, state.tuning[id] || TUNE_NEUTRAL)
+    );
     engine = new RhythmEngine(buffers);
     drone = new Drone();
     watchInterruptions();
@@ -155,6 +245,7 @@ function buildUI() {
   buildMutePanel();
   buildRhythmsView();
   buildSoundsView();
+  buildTuneView();
   buildBuildView();
   buildSettings();
   refreshNow();
@@ -178,6 +269,7 @@ function switchTab(name) {
   document.querySelectorAll('.view').forEach((v) => {
     v.hidden = v.dataset.view !== name;
   });
+  if (name === 'tune') syncTunePlay();
 }
 
 // ── Cycle ring ──────────────────────────────────────────────────────────
@@ -355,6 +447,8 @@ async function togglePlay() {
     releaseWakeLock();
     $('cycle-count').textContent = '—';
   }
+  // The Tune tab has its own transport button mirroring this one.
+  if ($('tune-play-toggle')) syncTunePlay();
 }
 
 function nudgeBpm(delta) {
@@ -1230,6 +1324,191 @@ function renderSaved() {
     item.append(load, del);
     list.appendChild(item);
   });
+}
+
+// ── Tune ────────────────────────────────────────────────────────────────
+// Re-rendering is debounced per stroke: dragging a slider fires continuously,
+// but a stroke render is ~20 ms of work, so coalesce to the latest value.
+const rerenderTimers = {};
+
+function scheduleRerender(id) {
+  clearTimeout(rerenderTimers[id]);
+  rerenderTimers[id] = setTimeout(() => rerenderStroke(id), 110);
+}
+
+async function rerenderStroke(id) {
+  const ctx = getContext();
+  if (!ctx) return;
+  const card = document.querySelector(`.tune-card[data-id="${id}"]`);
+  card?.classList.add('is-busy');
+  try {
+    const spec = tunedSpec(STROKES[id].spec, state.tuning[id]);
+    engine.buffers[id] = await renderStrokeVariants(id, spec, ctx.sampleRate);
+  } finally {
+    card?.classList.remove('is-busy');
+  }
+  store.set('tuning', state.tuning);
+}
+
+/** Level is a playback gain, so it takes effect without re-rendering. */
+function applyLevels() {
+  for (const id of Object.keys(STROKES)) {
+    STROKES[id].gain = STROKES[id].baseGain * (state.tuning[id]?.level ?? 1);
+  }
+}
+
+function buildTuneView() {
+  for (const id of Object.keys(STROKES)) {
+    if (STROKES[id].baseGain === undefined) STROKES[id].baseGain = STROKES[id].gain;
+  }
+  applyLevels();
+
+  const list = $('tune-list');
+  list.innerHTML = '';
+
+  // Riz has no spec of its own — it is a roll of riztap grains.
+  const tunable = STROKE_LIST.filter((s) => !s.isRoll).map((s) => s.id).concat('riztap');
+
+  for (const id of tunable) {
+    const def = STROKES[id];
+    const card = document.createElement('div');
+    card.className = 'tune-card';
+    card.dataset.id = id;
+    card.style.setProperty('--sc', def.color);
+
+    const head = document.createElement('div');
+    head.className = 'tune-head';
+    head.innerHTML =
+      `<span class="tune-badge">${def.letter}</span>` +
+      `<span class="tune-names"><span class="tune-name">${def.name}</span>` +
+      `<span class="tune-fa">${def.fa}</span></span>`;
+
+    const audition = document.createElement('button');
+    audition.type = 'button';
+    audition.className = 'tune-play';
+    audition.textContent = 'Hear it';
+    audition.addEventListener('click', async () => {
+      await resumeAudio();
+      engine.preview(id === 'riztap' ? 'riz' : id);
+    });
+
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'tune-reset';
+    reset.textContent = 'Reset';
+    reset.addEventListener('click', () => {
+      state.tuning[id] = { ...TUNE_NEUTRAL };
+      applyLevels();
+      syncTuneCard(id);
+      rerenderStroke(id);
+    });
+
+    head.append(audition, reset);
+    card.appendChild(head);
+
+    for (const c of TUNE_CONTROLS) {
+      const row = document.createElement('div');
+      row.className = 'tune-row';
+      row.innerHTML =
+        `<label class="tune-label">${c.label}` +
+        `<span class="tune-val" data-val="${c.id}"></span></label>` +
+        `<p class="tune-hint">${c.hint}</p>`;
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.className = 'slider slim';
+      slider.min = c.min;
+      slider.max = c.max;
+      slider.step = c.step;
+      slider.dataset.ctl = c.id;
+      slider.value = state.tuning[id][c.id];
+      slider.addEventListener('input', () => {
+        state.tuning[id][c.id] = Number(slider.value);
+        syncTuneCard(id);
+        if (c.id === 'level') {
+          applyLevels();
+          store.set('tuning', state.tuning);
+        } else {
+          scheduleRerender(id);
+        }
+      });
+      row.appendChild(slider);
+      card.appendChild(row);
+    }
+
+    list.appendChild(card);
+    syncTuneCard(id);
+  }
+
+  $('tune-reset-all').addEventListener('click', () => {
+    if (!confirm('Reset every stroke to the shipped tuning?')) return;
+    for (const id of Object.keys(state.tuning)) state.tuning[id] = { ...TUNE_NEUTRAL };
+    applyLevels();
+    store.set('tuning', state.tuning);
+    for (const id of Object.keys(STROKES)) {
+      syncTuneCard(id);
+      rerenderStroke(id);
+    }
+    toast('Reset to shipped tuning');
+  });
+
+  $('tune-export').addEventListener('click', exportTuning);
+
+  $('tune-play-toggle').addEventListener('click', async () => {
+    await resumeAudio();
+    togglePlay();
+    syncTunePlay();
+  });
+}
+
+function syncTuneCard(id) {
+  const card = document.querySelector(`.tune-card[data-id="${id}"]`);
+  if (!card) return;
+  const t = state.tuning[id];
+  for (const c of TUNE_CONTROLS) {
+    const val = card.querySelector(`[data-val="${c.id}"]`);
+    if (val) val.textContent = c.fmt(t[c.id]);
+    const sl = card.querySelector(`[data-ctl="${c.id}"]`);
+    if (sl && Number(sl.value) !== t[c.id]) sl.value = t[c.id];
+  }
+  card.classList.toggle('is-edited', !isNeutral(t));
+}
+
+function syncTunePlay() {
+  const btn = $('tune-play-toggle');
+  btn.textContent = engine.playing ? '■  Stop loop' : '▶  Loop while tuning';
+  btn.classList.toggle('is-on', engine.playing);
+  $('tune-play-name').textContent = `${state.rhythm.name} · ${state.bpm} BPM`;
+}
+
+/** Emits only what differs from the shipped tuning, so the result is short. */
+function exportTuning() {
+  const diff = {};
+  for (const [id, t] of Object.entries(state.tuning)) {
+    if (isNeutral(t)) continue;
+    diff[id] = Object.fromEntries(
+      TUNE_CONTROLS.map((c) => [c.id, t[c.id]]).filter(
+        ([k, v]) => Math.abs(v - TUNE_NEUTRAL[k]) > 1e-9
+      )
+    );
+  }
+
+  const box = $('tune-export-box');
+  const out = $('tune-export-text');
+  if (!Object.keys(diff).length) {
+    out.value = 'Nothing changed yet — everything is at the shipped tuning.';
+  } else {
+    out.value = JSON.stringify(diff, null, 2);
+  }
+  box.hidden = false;
+  out.select();
+
+  if (navigator.clipboard?.writeText && Object.keys(diff).length) {
+    navigator.clipboard.writeText(out.value).then(
+      () => toast('Copied — paste it back to me'),
+      () => toast('Select the text and copy it')
+    );
+  }
 }
 
 // ── Settings ────────────────────────────────────────────────────────────

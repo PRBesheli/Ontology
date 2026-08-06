@@ -484,6 +484,74 @@ h1, h2, h3, p { margin: 0; }
 }
 .sc-desc { display: block; font-size: 13px; color: var(--text-3); line-height: 1.6; margin-top: 8px; }
 
+/* ── Tune ─────────────────────────────────────────────────────────────── */
+.tune-transport {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 13px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line-soft);
+  margin-bottom: 16px;
+}
+.tune-loop {
+  flex: 0 0 auto; padding: 9px 14px; border-radius: 11px;
+  font-size: 13.5px; font-weight: 580; color: var(--text-2);
+  background: var(--bg-2); border: 1px solid var(--line);
+  white-space: nowrap; transition: all 0.15s;
+}
+.tune-loop.is-on {
+  background: rgba(232, 180, 74, 0.16); border-color: var(--gold-dim); color: var(--gold);
+}
+.tune-loop-name {
+  font-size: 12.5px; color: var(--text-3); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.tune-card {
+  padding: 14px 15px 6px; margin-bottom: 11px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line-soft);
+  transition: border-color 0.2s, opacity 0.15s;
+}
+.tune-card.is-edited { border-color: color-mix(in srgb, var(--sc) 55%, transparent); }
+.tune-card.is-busy { opacity: 0.55; }
+
+.tune-head { display: flex; align-items: center; gap: 11px; margin-bottom: 4px; }
+.tune-badge {
+  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
+  display: grid; place-items: center;
+  font-size: 15px; font-weight: 680; color: var(--sc);
+  background: var(--bg-2); border: 1.5px solid var(--sc);
+}
+.tune-names { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.tune-name { font-size: 15.5px; font-weight: 620; }
+.tune-fa { font-family: var(--fa); font-size: 14px; color: var(--sc); }
+.tune-play, .tune-reset {
+  flex: 0 0 auto; padding: 6px 11px; border-radius: 9px;
+  font-size: 12.5px; font-weight: 560; color: var(--text-2);
+  background: var(--bg-2); border: 1px solid var(--line-soft);
+}
+.tune-play:active { background: var(--sc); color: var(--bg); }
+.tune-reset { color: var(--text-3); }
+
+.tune-row { margin-top: 12px; }
+.tune-label {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  font-size: 12.5px; font-weight: 600; color: var(--text-2);
+}
+.tune-val {
+  font-size: 12.5px; font-weight: 620; color: var(--sc);
+  font-variant-numeric: tabular-nums;
+}
+.tune-hint { font-size: 11.5px; color: var(--text-3); line-height: 1.45; margin: 2px 0 1px; }
+
+.tune-export-box { margin-top: 14px; }
+.tune-export-note { font-size: 12.5px; color: var(--text-3); line-height: 1.6; margin-bottom: 8px; }
+.tune-export-text {
+  width: 100%; padding: 12px 13px; border-radius: var(--radius-s);
+  background: var(--bg-2); border: 1px solid var(--line);
+  color: var(--turq); font-size: 12.5px; line-height: 1.5;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  resize: vertical; user-select: text; -webkit-user-select: text;
+}
+
 /* ── Build ────────────────────────────────────────────────────────────── */
 .build-meter {
   padding: 14px 15px; border-radius: var(--radius);
@@ -591,11 +659,13 @@ h1, h2, h3, p { margin: 0; }
   border-top: 1px solid var(--line-soft);
 }
 .tab {
-  flex: 1; height: var(--tab-h);
+  flex: 1; min-width: 0; height: var(--tab-h);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  font-size: 10.5px; font-weight: 560; color: var(--text-3);
+  /* Five tabs on a narrow phone — keep the labels from wrapping. */
+  font-size: 10px; font-weight: 560; color: var(--text-3);
   transition: color 0.16s;
 }
+.tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab.is-on { color: var(--gold); }
 .tab:active { opacity: 0.65; }
 
@@ -928,6 +998,43 @@ h1, h2, h3, p { margin: 0; }
       <p class="empty" id="stroke-empty" hidden>No stroke matches that.</p>
     </section>
 
+    <!-- ═══ TUNE ═══════════════════════════════════════════════════════ -->
+    <section class="view" id="view-tune" data-view="tune" hidden>
+      <div class="intro">
+        <h2 class="intro-title">Tune the drum</h2>
+        <p class="intro-body">
+          No two tonbaks sound alike — head tension, shell size and how dry the
+          skin is on the day all move the tone. Adjust each stroke until it
+          matches the drum you have in your ear. Changes are applied live, and
+          are kept between sessions.
+        </p>
+        <p class="intro-body">
+          Start the loop below and tune while it plays, so you hear each stroke
+          in context rather than on its own.
+        </p>
+      </div>
+
+      <div class="tune-transport">
+        <button class="tune-loop" id="tune-play-toggle" type="button">▶&nbsp; Loop while tuning</button>
+        <span class="tune-loop-name" id="tune-play-name"></span>
+      </div>
+
+      <div id="tune-list" class="tune-list"></div>
+
+      <div class="build-actions">
+        <button class="btn btn-ghost" id="tune-reset-all" type="button">Reset all</button>
+        <button class="btn btn-primary" id="tune-export" type="button">Export settings</button>
+      </div>
+
+      <div class="tune-export-box" id="tune-export-box" hidden>
+        <p class="tune-export-note">
+          Send this back and it becomes the built-in tuning. Only the values you
+          changed are listed.
+        </p>
+        <textarea class="tune-export-text" id="tune-export-text" readonly rows="10"></textarea>
+      </div>
+    </section>
+
     <!-- ═══ BUILD ══════════════════════════════════════════════════════ -->
     <section class="view" id="view-build" data-view="build" hidden>
       <div class="intro">
@@ -996,6 +1103,13 @@ h1, h2, h3, p { margin: 0; }
     <button class="tab" data-tab="sounds" role="tab" aria-selected="false" type="button">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 13v-2M8 16V8M12 19V5M16 16V8M20 13v-2"/></svg>
       <span>Sounds</span>
+    </button>
+    <button class="tab" data-tab="tune" role="tab" aria-selected="false" type="button">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M5 4v6M5 14v6M12 4v3M12 11v9M19 4v9M19 17v3"/>
+        <circle cx="5" cy="12" r="2"/><circle cx="12" cy="9" r="2"/><circle cx="19" cy="15" r="2"/>
+      </svg>
+      <span>Tune</span>
     </button>
     <button class="tab" data-tab="build" role="tab" aria-selected="false" type="button">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>
@@ -2383,54 +2497,58 @@ function renderRoomImpulse(ctx, seconds = 0.9) {
  * Renders every stroke's variants. Returns { tom: [AudioBuffer x4], ... }.
  * Called once at startup; well under a second on a modern phone.
  */
-async function renderAllStrokes(strokes, sampleRate) {
-  const out = {};
-  const jobs = [];
-
-  for (const key of Object.keys(strokes)) {
-    const stroke = strokes[key];
-    out[key] = new Array(VARIANTS);
-    for (let v = 0; v < VARIANTS; v++) {
+/**
+ * Renders one stroke's variants and normalises them together.
+ *
+ * Peak is fixed per stroke, with a single factor across its variants so their
+ * relative dynamics survive. Resonator output level depends on Q and mode
+ * count for reasons unrelated to how loud a stroke should be, so normalising
+ * here leaves `gain` in strokes.js as the only thing setting balance.
+ *
+ * Exposed separately from renderAllStrokes so the tuning panel can re-render
+ * a single stroke while a rhythm is playing.
+ */
+async function renderStrokeVariants(key, spec, sampleRate) {
+  const bank = await Promise.all(
+    Array.from({ length: VARIANTS }, (_, v) => {
+      // Seed from the stroke name so variants are stable across sessions.
       let seed = v * 7919 + 13;
       for (let i = 0; i < key.length; i++) seed = (seed * 31 + key.charCodeAt(i)) >>> 0;
-      jobs.push(
-        renderVariant(stroke.spec, sampleRate, seed).then((buf) => {
-          out[key][v] = buf;
-        })
-      );
+      return renderVariant(spec, sampleRate, seed);
+    })
+  );
+
+  let peak = 0;
+  for (const buf of bank) {
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) {
+      const a = Math.abs(d[i]);
+      if (a > peak) peak = a;
     }
   }
-
-  await Promise.all(jobs);
-
-  // Scale each stroke to a known peak, with one factor across its variants so
-  // their relative dynamics survive. Resonator output level depends on Q and
-  // mode count for reasons unrelated to how loud a stroke should be, so this
-  // leaves `gain` in strokes.js as the only thing setting balance.
-  for (const key of Object.keys(out)) {
-    let peak = 0;
-    for (const buf of out[key]) {
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) {
-        const a = Math.abs(d[i]);
-        if (a > peak) peak = a;
-      }
-    }
-    if (peak < 1e-6) continue;
+  if (peak > 1e-6) {
     const scale = 0.95 / peak;
-    for (const buf of out[key]) {
+    for (const buf of bank) {
       const d = buf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] *= scale;
     }
   }
 
-  return out;
+  return bank;
+}
+
+async function renderAllStrokes(strokes, sampleRate, specFor) {
+  const keys = Object.keys(strokes);
+  const banks = await Promise.all(
+    keys.map((k) => renderStrokeVariants(k, specFor ? specFor(k) : strokes[k].spec, sampleRate))
+  );
+  return Object.fromEntries(keys.map((k, i) => [k, banks[i]]));
 }
 
 const VARIANT_COUNT = VARIANTS;
 
 
-  return { renderRoomImpulse, renderAllStrokes, VARIANT_COUNT };
+  return { renderRoomImpulse, renderStrokeVariants, renderAllStrokes, VARIANT_COUNT };
 
 })();
 
@@ -3072,8 +3190,8 @@ class Drone {
 
 /* ── js/app.js ─────────────────────────────────────────────────────── */
 __m.app = (function () {
-  const { initAudio, resumeAudio, watchInterruptions, setMasterVolume, setReverbAmount, setDroneVolume } = __m.context;
-  const { renderAllStrokes } = __m.synth;
+  const { initAudio, resumeAudio, watchInterruptions, getContext, setMasterVolume, setReverbAmount, setDroneVolume } = __m.context;
+  const { renderAllStrokes, renderStrokeVariants } = __m.synth;
   const { RhythmEngine } = __m.engine;
   const { Drone } = __m.drone;
   const { STROKES, STROKE_LIST, RIZ, LETTER_TO_STROKE, CYCLE_ORDER } = __m.strokes;
@@ -3102,6 +3220,88 @@ const STROKE_TO_LETTER = Object.fromEntries(
 );
 const STROKE_COLOR = (id) => (id === 'riz' ? RIZ.color : STROKES[id]?.color || '#888');
 
+/**
+ * Per-stroke tuning offsets, applied on top of the specs in strokes.js.
+ *
+ * Real tonbaks vary enormously — head tension, shell size, how dry the skin
+ * is on the day — so there is no single correct timbre to hard-code. These
+ * five controls are the ones that actually move the sound, expressed as
+ * offsets so the shipped specs stay the reference point and Reset always
+ * means something.
+ */
+const TUNE_NEUTRAL = { pitch: 0, decay: 1, attack: 1, bright: 0, level: 1 };
+
+const TUNE_CONTROLS = [
+  {
+    id: 'pitch', label: 'Pitch', min: -12, max: 12, step: 0.5, unit: 'st',
+    hint: 'Head tension — how big and how tightly tuned the drum reads.',
+    fmt: (v) => `${v > 0 ? '+' : ''}${v} st`,
+  },
+  {
+    id: 'decay', label: 'Decay', min: 0.25, max: 2.5, step: 0.05, unit: '×',
+    hint: 'How long it rings. Short and dry, or open and resonant.',
+    fmt: (v) => `${v.toFixed(2)}×`,
+  },
+  {
+    id: 'attack', label: 'Attack', min: 0, max: 3, step: 0.05, unit: '×',
+    hint: 'The thud of finger meeting skin, before the head starts ringing.',
+    fmt: (v) => `${v.toFixed(2)}×`,
+  },
+  {
+    id: 'bright', label: 'Tone', min: -1, max: 1, step: 0.05, unit: '',
+    hint: 'Dark and woody through to sharp and papery.',
+    fmt: (v) => (v === 0 ? 'neutral' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`),
+  },
+  {
+    id: 'level', label: 'Level', min: 0.2, max: 2, step: 0.05, unit: '×',
+    hint: 'Balance against the other strokes.',
+    fmt: (v) => `${v.toFixed(2)}×`,
+  },
+];
+
+/**
+ * Applies tuning offsets to a base spec. Pitch scales every frequency so the
+ * drum changes size rather than going out of tune with itself; Tone tilts the
+ * mode amplitudes around 700 Hz, which is roughly where the ear splits
+ * "woody" from "papery" on this instrument.
+ */
+function tunedSpec(base, t) {
+  const p = Math.pow(2, (t.pitch || 0) / 12);
+  const dk = t.decay ?? 1;
+  const br = t.bright ?? 0;
+  const at = t.attack ?? 1;
+
+  const scaleMode = (m) => ({
+    ...m,
+    f: m.f * p,
+    d: m.d * dk,
+    a: m.a * Math.pow(Math.max(m.f * p, 60) / 700, br * 0.6),
+  });
+
+  const spec = {
+    // Longer decays need room, or the tail is cut off mid-ring.
+    duration: base.duration * Math.max(1, Math.min(dk, 2.5)),
+    exciter: {
+      ...base.exciter,
+      tilt: Math.max(400, Math.min(18000, base.exciter.tilt * Math.pow(2.3, br))),
+    },
+    modes: (base.modes || []).map(scaleMode),
+    body: (base.body || []).map((m) => ({ ...m, f: m.f * p, d: m.d * dk })),
+  };
+
+  if (base.contact) {
+    spec.contact = {
+      ...base.contact,
+      level: base.contact.level * at * (1 + br * 0.35),
+    };
+  }
+  return spec;
+}
+
+function isNeutral(t) {
+  return TUNE_CONTROLS.every((c) => Math.abs((t[c.id] ?? TUNE_NEUTRAL[c.id]) - TUNE_NEUTRAL[c.id]) < 1e-9);
+}
+
 /** Renders '♩.' as a note plus a tight augmentation dot rather than a full stop. */
 function noteGlyph(label) {
   const l = label || '♩';
@@ -3128,6 +3328,7 @@ const state = {
   build: null,
   custom: [],
   settings: { volume: 0.9, reverb: 0.4, a4: 440, wake: true },
+  tuning: {},
   droneCfg: { pc: 7, accidental: 'natural', octave: 3, interval: 'fifth', cents: 0, volume: 0.35, dastgah: 'shur' },
   trainer: { every: 4, delta: 4, max: 160, loop: false },
 };
@@ -3158,6 +3359,11 @@ function loadState() {
   state.countIn = store.get('countin', 0);
   state.custom = store.get('custom', []);
 
+  const savedTune = store.get('tuning', {});
+  for (const id of Object.keys(STROKES)) {
+    state.tuning[id] = { ...TUNE_NEUTRAL, ...(savedTune[id] || {}) };
+  }
+
   const last = store.get('last', null);
   if (last) {
     const found = allRhythms().find((r) => r.id === last.id);
@@ -3185,7 +3391,9 @@ async function boot() {
     // Yield so the label paints before the render blocks the thread.
     await new Promise((r) => setTimeout(r, 30));
 
-    const buffers = await renderAllStrokes(STROKES, ctx.sampleRate);
+    const buffers = await renderAllStrokes(STROKES, ctx.sampleRate, (id) =>
+      tunedSpec(STROKES[id].spec, state.tuning[id] || TUNE_NEUTRAL)
+    );
     engine = new RhythmEngine(buffers);
     drone = new Drone();
     watchInterruptions();
@@ -3230,6 +3438,7 @@ function buildUI() {
   buildMutePanel();
   buildRhythmsView();
   buildSoundsView();
+  buildTuneView();
   buildBuildView();
   buildSettings();
   refreshNow();
@@ -3253,6 +3462,7 @@ function switchTab(name) {
   document.querySelectorAll('.view').forEach((v) => {
     v.hidden = v.dataset.view !== name;
   });
+  if (name === 'tune') syncTunePlay();
 }
 
 // ── Cycle ring ──────────────────────────────────────────────────────────
@@ -3430,6 +3640,8 @@ async function togglePlay() {
     releaseWakeLock();
     $('cycle-count').textContent = '—';
   }
+  // The Tune tab has its own transport button mirroring this one.
+  if ($('tune-play-toggle')) syncTunePlay();
 }
 
 function nudgeBpm(delta) {
@@ -4305,6 +4517,191 @@ function renderSaved() {
     item.append(load, del);
     list.appendChild(item);
   });
+}
+
+// ── Tune ────────────────────────────────────────────────────────────────
+// Re-rendering is debounced per stroke: dragging a slider fires continuously,
+// but a stroke render is ~20 ms of work, so coalesce to the latest value.
+const rerenderTimers = {};
+
+function scheduleRerender(id) {
+  clearTimeout(rerenderTimers[id]);
+  rerenderTimers[id] = setTimeout(() => rerenderStroke(id), 110);
+}
+
+async function rerenderStroke(id) {
+  const ctx = getContext();
+  if (!ctx) return;
+  const card = document.querySelector(`.tune-card[data-id="${id}"]`);
+  card?.classList.add('is-busy');
+  try {
+    const spec = tunedSpec(STROKES[id].spec, state.tuning[id]);
+    engine.buffers[id] = await renderStrokeVariants(id, spec, ctx.sampleRate);
+  } finally {
+    card?.classList.remove('is-busy');
+  }
+  store.set('tuning', state.tuning);
+}
+
+/** Level is a playback gain, so it takes effect without re-rendering. */
+function applyLevels() {
+  for (const id of Object.keys(STROKES)) {
+    STROKES[id].gain = STROKES[id].baseGain * (state.tuning[id]?.level ?? 1);
+  }
+}
+
+function buildTuneView() {
+  for (const id of Object.keys(STROKES)) {
+    if (STROKES[id].baseGain === undefined) STROKES[id].baseGain = STROKES[id].gain;
+  }
+  applyLevels();
+
+  const list = $('tune-list');
+  list.innerHTML = '';
+
+  // Riz has no spec of its own — it is a roll of riztap grains.
+  const tunable = STROKE_LIST.filter((s) => !s.isRoll).map((s) => s.id).concat('riztap');
+
+  for (const id of tunable) {
+    const def = STROKES[id];
+    const card = document.createElement('div');
+    card.className = 'tune-card';
+    card.dataset.id = id;
+    card.style.setProperty('--sc', def.color);
+
+    const head = document.createElement('div');
+    head.className = 'tune-head';
+    head.innerHTML =
+      `<span class="tune-badge">${def.letter}</span>` +
+      `<span class="tune-names"><span class="tune-name">${def.name}</span>` +
+      `<span class="tune-fa">${def.fa}</span></span>`;
+
+    const audition = document.createElement('button');
+    audition.type = 'button';
+    audition.className = 'tune-play';
+    audition.textContent = 'Hear it';
+    audition.addEventListener('click', async () => {
+      await resumeAudio();
+      engine.preview(id === 'riztap' ? 'riz' : id);
+    });
+
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'tune-reset';
+    reset.textContent = 'Reset';
+    reset.addEventListener('click', () => {
+      state.tuning[id] = { ...TUNE_NEUTRAL };
+      applyLevels();
+      syncTuneCard(id);
+      rerenderStroke(id);
+    });
+
+    head.append(audition, reset);
+    card.appendChild(head);
+
+    for (const c of TUNE_CONTROLS) {
+      const row = document.createElement('div');
+      row.className = 'tune-row';
+      row.innerHTML =
+        `<label class="tune-label">${c.label}` +
+        `<span class="tune-val" data-val="${c.id}"></span></label>` +
+        `<p class="tune-hint">${c.hint}</p>`;
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.className = 'slider slim';
+      slider.min = c.min;
+      slider.max = c.max;
+      slider.step = c.step;
+      slider.dataset.ctl = c.id;
+      slider.value = state.tuning[id][c.id];
+      slider.addEventListener('input', () => {
+        state.tuning[id][c.id] = Number(slider.value);
+        syncTuneCard(id);
+        if (c.id === 'level') {
+          applyLevels();
+          store.set('tuning', state.tuning);
+        } else {
+          scheduleRerender(id);
+        }
+      });
+      row.appendChild(slider);
+      card.appendChild(row);
+    }
+
+    list.appendChild(card);
+    syncTuneCard(id);
+  }
+
+  $('tune-reset-all').addEventListener('click', () => {
+    if (!confirm('Reset every stroke to the shipped tuning?')) return;
+    for (const id of Object.keys(state.tuning)) state.tuning[id] = { ...TUNE_NEUTRAL };
+    applyLevels();
+    store.set('tuning', state.tuning);
+    for (const id of Object.keys(STROKES)) {
+      syncTuneCard(id);
+      rerenderStroke(id);
+    }
+    toast('Reset to shipped tuning');
+  });
+
+  $('tune-export').addEventListener('click', exportTuning);
+
+  $('tune-play-toggle').addEventListener('click', async () => {
+    await resumeAudio();
+    togglePlay();
+    syncTunePlay();
+  });
+}
+
+function syncTuneCard(id) {
+  const card = document.querySelector(`.tune-card[data-id="${id}"]`);
+  if (!card) return;
+  const t = state.tuning[id];
+  for (const c of TUNE_CONTROLS) {
+    const val = card.querySelector(`[data-val="${c.id}"]`);
+    if (val) val.textContent = c.fmt(t[c.id]);
+    const sl = card.querySelector(`[data-ctl="${c.id}"]`);
+    if (sl && Number(sl.value) !== t[c.id]) sl.value = t[c.id];
+  }
+  card.classList.toggle('is-edited', !isNeutral(t));
+}
+
+function syncTunePlay() {
+  const btn = $('tune-play-toggle');
+  btn.textContent = engine.playing ? '■  Stop loop' : '▶  Loop while tuning';
+  btn.classList.toggle('is-on', engine.playing);
+  $('tune-play-name').textContent = `${state.rhythm.name} · ${state.bpm} BPM`;
+}
+
+/** Emits only what differs from the shipped tuning, so the result is short. */
+function exportTuning() {
+  const diff = {};
+  for (const [id, t] of Object.entries(state.tuning)) {
+    if (isNeutral(t)) continue;
+    diff[id] = Object.fromEntries(
+      TUNE_CONTROLS.map((c) => [c.id, t[c.id]]).filter(
+        ([k, v]) => Math.abs(v - TUNE_NEUTRAL[k]) > 1e-9
+      )
+    );
+  }
+
+  const box = $('tune-export-box');
+  const out = $('tune-export-text');
+  if (!Object.keys(diff).length) {
+    out.value = 'Nothing changed yet — everything is at the shipped tuning.';
+  } else {
+    out.value = JSON.stringify(diff, null, 2);
+  }
+  box.hidden = false;
+  out.select();
+
+  if (navigator.clipboard?.writeText && Object.keys(diff).length) {
+    navigator.clipboard.writeText(out.value).then(
+      () => toast('Copied — paste it back to me'),
+      () => toast('Select the text and copy it')
+    );
+  }
 }
 
 // ── Settings ────────────────────────────────────────────────────────────

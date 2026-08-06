@@ -112,6 +112,26 @@ tab is there so you can bend any of them to what you actually play.
   ceiling, so you can take a piece up to speed without stopping
 - **Tap tempo**, stroke mutes, and a room control
 
+### Tune
+
+No two tonbaks sound alike — head tension, shell size and how dry the skin is
+on the day all move the tone, so there is no single correct timbre to
+hard-code. Each stroke has five controls, applied live over the shipped spec
+and kept between sessions:
+
+| Control | What it moves |
+| --- | --- |
+| **Pitch** | Scales every frequency, so the drum changes size rather than going out of tune with itself. |
+| **Decay** | Scales all T60s. Short and dry through to open and resonant. |
+| **Attack** | The contact transient — the thud of finger meeting skin before the head rings. |
+| **Tone** | Tilts the mode amplitudes around 700 Hz, roughly where the ear splits "woody" from "papery". |
+| **Level** | Balance against the other strokes. Applies without re-rendering. |
+
+Changing anything but Level re-renders that stroke in place, debounced, while
+a rhythm keeps playing. **Export settings** emits only what differs from the
+shipped tuning, so the result is short enough to paste back and adopt as the
+new defaults.
+
 ### Build
 
 A step grid: set pulses, unit and subdivision, edit the grouping, then tap to

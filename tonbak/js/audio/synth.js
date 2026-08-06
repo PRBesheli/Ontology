@@ -235,48 +235,52 @@ export function renderRoomImpulse(ctx, seconds = 0.9) {
  * Renders every stroke's variants. Returns { tom: [AudioBuffer x4], ... }.
  * Called once at startup; well under a second on a modern phone.
  */
-export async function renderAllStrokes(strokes, sampleRate) {
-  const out = {};
-  const jobs = [];
-
-  for (const key of Object.keys(strokes)) {
-    const stroke = strokes[key];
-    out[key] = new Array(VARIANTS);
-    for (let v = 0; v < VARIANTS; v++) {
+/**
+ * Renders one stroke's variants and normalises them together.
+ *
+ * Peak is fixed per stroke, with a single factor across its variants so their
+ * relative dynamics survive. Resonator output level depends on Q and mode
+ * count for reasons unrelated to how loud a stroke should be, so normalising
+ * here leaves `gain` in strokes.js as the only thing setting balance.
+ *
+ * Exposed separately from renderAllStrokes so the tuning panel can re-render
+ * a single stroke while a rhythm is playing.
+ */
+export async function renderStrokeVariants(key, spec, sampleRate) {
+  const bank = await Promise.all(
+    Array.from({ length: VARIANTS }, (_, v) => {
+      // Seed from the stroke name so variants are stable across sessions.
       let seed = v * 7919 + 13;
       for (let i = 0; i < key.length; i++) seed = (seed * 31 + key.charCodeAt(i)) >>> 0;
-      jobs.push(
-        renderVariant(stroke.spec, sampleRate, seed).then((buf) => {
-          out[key][v] = buf;
-        })
-      );
+      return renderVariant(spec, sampleRate, seed);
+    })
+  );
+
+  let peak = 0;
+  for (const buf of bank) {
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) {
+      const a = Math.abs(d[i]);
+      if (a > peak) peak = a;
     }
   }
-
-  await Promise.all(jobs);
-
-  // Scale each stroke to a known peak, with one factor across its variants so
-  // their relative dynamics survive. Resonator output level depends on Q and
-  // mode count for reasons unrelated to how loud a stroke should be, so this
-  // leaves `gain` in strokes.js as the only thing setting balance.
-  for (const key of Object.keys(out)) {
-    let peak = 0;
-    for (const buf of out[key]) {
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) {
-        const a = Math.abs(d[i]);
-        if (a > peak) peak = a;
-      }
-    }
-    if (peak < 1e-6) continue;
+  if (peak > 1e-6) {
     const scale = 0.95 / peak;
-    for (const buf of out[key]) {
+    for (const buf of bank) {
       const d = buf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] *= scale;
     }
   }
 
-  return out;
+  return bank;
+}
+
+export async function renderAllStrokes(strokes, sampleRate, specFor) {
+  const keys = Object.keys(strokes);
+  const banks = await Promise.all(
+    keys.map((k) => renderStrokeVariants(k, specFor ? specFor(k) : strokes[k].spec, sampleRate))
+  );
+  return Object.fromEntries(keys.map((k, i) => [k, banks[i]]));
 }
 
 export const VARIANT_COUNT = VARIANTS;
