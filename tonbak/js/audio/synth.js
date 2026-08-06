@@ -1,19 +1,34 @@
 /**
  * Renders each tonbak stroke offline, once, into an AudioBuffer.
  *
- * Doing the physical modelling up front rather than per-hit buys two things
- * that matter for a rhythm app: playback costs a single node per stroke (a
- * Riz roll can fire forty times a second on a phone without glitching), and
- * scheduling stays sample-accurate because nothing is being built during the
- * bar.
+ * The model is excitation → resonators, which is how the drum actually works:
+ * a finger striking the skin injects a broadband impulse, and the membrane
+ * and cavity ring in response. Everything the ear uses to identify a drum
+ * lives in the first few milliseconds of that contact noise — a bank of
+ * independent sine oscillators reproduces the pitch and none of the identity,
+ * and reads as a synth bass rather than a struck skin.
  *
- * Each stroke is rendered in several variants with the modal frequencies and
- * decays jittered slightly. Cycling through them is what stops a repeated
- * Tom from sounding like a machine gun — no real drummer hits the same spot
- * twice, and the ear notices immediately when one does.
+ * So each stroke is built from three layers:
+ *
+ *   contact    1–4 ms of filtered noise: the finger meeting the skin
+ *   resonance  that same excitation through parallel bandpass resonators,
+ *              whose Q sets both the ring time and the bandwidth — physically
+ *              coupled, as they are on a real head
+ *   body       sine partials for the deep cavity modes only, where a filter
+ *              would need an impractical Q to ring that long that low
+ *
+ * Rendering offline once buys sample-accurate playback at one node per hit,
+ * so a Riz roll can fire forty times a second on a phone without glitching.
+ *
+ * Decay times below are **T60** — seconds to fall 60 dB — so the numbers mean
+ * what they say when compared against a recording.
  */
 
 const VARIANTS = 4;
+
+// e^(-t/τ) reaches -60 dB at t = ln(1000)·τ, so this converts T60 to the
+// time-constant setTargetAtTime wants.
+const T60_TO_TAU = 1 / Math.log(1000);
 
 /** Deterministic PRNG so a given variant renders identically every launch. */
 function mulberry32(seed) {
@@ -35,130 +50,159 @@ function noiseBuffer(ctx, seconds, rand) {
   return buf;
 }
 
-/** Soft asymmetric saturation — stands in for the nonlinearity of a driven skin. */
-function saturationCurve(drive) {
-  const n = 2048;
-  const curve = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const x = (i / (n - 1)) * 2 - 1;
-    curve[i] = Math.tanh(x * drive) / Math.tanh(drive);
-  }
-  return curve;
-}
-
 /**
- * Exponential decay shaped like a struck resonator: near-instant attack, then
- * a fall that never quite reaches zero (setTargetAtTime), closed off by a
- * short ramp so the buffer ends silent instead of clicking.
+ * A resonator's ring time and its bandwidth are the same physical property.
+ * Q = π·f·T60/ln(1000). Capped because very high Q at low frequency is both
+ * numerically fragile and starts to sound like a tuned filter rather than a
+ * drum head.
  */
-function ring(param, peak, decay, t0, duration) {
-  param.setValueAtTime(0, t0);
-  param.linearRampToValueAtTime(peak, t0 + 0.0008);
-  param.setTargetAtTime(0, t0 + 0.0008, decay / 3.2);
-  const tail = Math.min(t0 + duration, t0 + decay * 3.6);
-  if (tail > t0 + 0.002) param.setTargetAtTime(0, tail, 0.008);
+function qForDecay(freq, t60) {
+  return Math.min(240, Math.max(0.7, Math.PI * freq * t60 * T60_TO_TAU));
 }
 
 function renderVariant(spec, sampleRate, seed) {
   const rand = mulberry32(seed);
   const dur = spec.duration;
   const ctx = new OfflineAudioContext(1, Math.ceil(dur * sampleRate), sampleRate);
-
-  // Per-variant drift: a couple of percent on tuning, a little more on decay.
   const jitter = (amt) => 1 + (rand() * 2 - 1) * amt;
 
-  const out = ctx.createGain();
-  out.gain.value = 1;
+  const sum = ctx.createGain();
+  sum.gain.value = 1;
 
-  const shaper = ctx.createWaveShaper();
-  shaper.curve = saturationCurve(spec.drive || 1);
-  shaper.oversample = '2x';
-  shaper.connect(out);
-
-  // Block DC and the sub-audible rumble the low modes can accumulate.
+  // Block DC and sub-audible rumble the low modes accumulate.
   const dcBlock = ctx.createBiquadFilter();
   dcBlock.type = 'highpass';
-  dcBlock.frequency.value = 34;
+  dcBlock.frequency.value = 32;
   dcBlock.Q.value = 0.7;
-  out.connect(dcBlock);
+  sum.connect(dcBlock);
   dcBlock.connect(ctx.destination);
 
-  // --- Ringing partials -------------------------------------------------
+  // ── Excitation ────────────────────────────────────────────────────────
+  // One short noise burst drives everything, which is what couples the
+  // layers: the transient and the ring share a source, as they do on a drum.
+  const ex = spec.exciter;
+  const exSrc = ctx.createBufferSource();
+  exSrc.buffer = noiseBuffer(ctx, Math.min(dur, ex.decay * 8 + 0.01), rand);
+
+  // Contact stiffness — a fingertip is softer than a fingernail, and the
+  // corner frequency here is most of what separates Tom from Pelang.
+  const exTilt = ctx.createBiquadFilter();
+  exTilt.type = 'lowpass';
+  exTilt.frequency.value = ex.tilt * jitter(0.06);
+  exTilt.Q.value = 0.6;
+
+  const exEnv = ctx.createGain();
+  const atk = ex.attack || 0.0004;
+  exEnv.gain.setValueAtTime(0, 0);
+  exEnv.gain.linearRampToValueAtTime(ex.level * jitter(0.05), atk);
+  exEnv.gain.exponentialRampToValueAtTime(0.0001, atk + ex.decay * jitter(0.12));
+
+  exSrc.connect(exTilt);
+  exTilt.connect(exEnv);
+  exSrc.start(0);
+
+  // ── Contact transient ─────────────────────────────────────────────────
+  // The part you hear before the head has begun to ring. Without it a stroke
+  // has no attack, only pitch.
+  if (spec.contact) {
+    const c = spec.contact;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = c.hp * jitter(0.05);
+    hp.Q.value = 0.7;
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, 0);
+    g.gain.linearRampToValueAtTime(c.level * jitter(0.07), 0.0002);
+    g.gain.exponentialRampToValueAtTime(0.0001, 0.0002 + c.decay * jitter(0.15));
+
+    exEnv.connect(hp);
+    hp.connect(g);
+    g.connect(sum);
+  }
+
+  // ── Membrane resonances ───────────────────────────────────────────────
+  // Driven by an impulse rather than the noise burst. A narrow resonator only
+  // captures the sliver of a burst's energy that falls inside its band, so a
+  // few milliseconds of noise leaves it barely ringing — measurably ~27 dB
+  // under where it should sit. An impulse excites every mode fully, and its
+  // response is exact enough to solve for the gain instead of trimming by ear.
+  let impulse = null;
+  if ((spec.modes || []).length) {
+    const buf = ctx.createBuffer(1, 2, sampleRate);
+    buf.getChannelData(0)[0] = 1;
+    impulse = ctx.createBufferSource();
+    impulse.buffer = buf;
+    impulse.start(0);
+  }
+
+  // A little of the contact noise goes in alongside, so the modes are dirtied
+  // by the strike rather than ringing like struck glass.
+  const grit = ctx.createGain();
+  grit.gain.value = 0.35;
+  exEnv.connect(grit);
+
   for (const m of spec.modes || []) {
+    const f = m.f * jitter(0.02);
+    const t60 = m.d * jitter(0.1);
+
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = f;
+    bp.Q.value = qForDecay(f, t60);
+
+    // A bandpass at unity peak gain answers an impulse with a decaying
+    // sinusoid peaking near ω₀/Q. A one-sample impulse carries area 1/sr, so
+    // scaling by Q·sr/(2πf) makes `a` land as the mode's actual peak
+    // amplitude — the numbers in strokes.js then mean what they say.
+    const g = ctx.createGain();
+    g.gain.value = (m.a * jitter(0.08) * bp.Q.value * sampleRate) / (2 * Math.PI * f);
+
+    if (impulse) impulse.connect(bp);
+    grit.connect(bp);
+    bp.connect(g);
+    g.connect(sum);
+  }
+
+  // ── Cavity / low body partials ────────────────────────────────────────
+  // Sines, because a resonator ringing half a second at 90 Hz needs a Q that
+  // is both unstable and audibly artificial.
+  for (const b of spec.body || []) {
     const osc = ctx.createOscillator();
     osc.type = 'sine';
-    const f = m.f * jitter(0.015);
-    const decay = m.d * jitter(0.08);
+    const f = b.f * jitter(0.012);
 
-    if (m.glide) {
-      // Head sharpens under the strike, then settles.
-      osc.frequency.setValueAtTime(f * m.glide, 0);
-      osc.frequency.exponentialRampToValueAtTime(f, m.gt || 0.03);
+    if (b.glide) {
+      // A struck head tightens under the blow and settles as it recovers.
+      osc.frequency.setValueAtTime(f * b.glide, 0);
+      osc.frequency.exponentialRampToValueAtTime(f, b.gt || 0.03);
     } else {
       osc.frequency.setValueAtTime(f, 0);
     }
 
     const g = ctx.createGain();
-    ring(g.gain, m.a * jitter(0.06), decay, 0, dur);
+    const t60 = b.d * jitter(0.08);
+    // Sub-millisecond attack. Anything slower and the low end swells in after
+    // the strike instead of arriving with it.
+    g.gain.setValueAtTime(0, 0);
+    g.gain.linearRampToValueAtTime(b.a * jitter(0.06), 0.0006);
+    g.gain.setTargetAtTime(0, 0.0006, t60 * T60_TO_TAU);
+
     osc.connect(g);
-    g.connect(shaper);
+    g.connect(sum);
     osc.start(0);
     osc.stop(dur);
-  }
-
-  // --- Skin and finger-contact noise ------------------------------------
-  for (const n of spec.noise || []) {
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(ctx, Math.min(dur, n.d * 6 + 0.02), rand);
-
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = n.f * jitter(0.04);
-    bp.Q.value = n.q;
-
-    const g = ctx.createGain();
-    const attack = n.attack || 0.0008;
-    const decay = n.d * jitter(0.1);
-    g.gain.setValueAtTime(0, 0);
-    g.gain.linearRampToValueAtTime(n.a * jitter(0.07), attack);
-    g.gain.setTargetAtTime(0, attack, decay / 3);
-
-    src.connect(bp);
-    bp.connect(g);
-    g.connect(shaper);
-    src.start(0);
-  }
-
-  // --- Impact transient -------------------------------------------------
-  if (spec.click) {
-    const c = spec.click;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(ctx, Math.min(dur, 0.02), rand);
-
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = c.f;
-    hp.Q.value = 0.6;
-
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(c.a * jitter(0.08), 0);
-    g.gain.exponentialRampToValueAtTime(0.0001, c.d);
-
-    src.connect(hp);
-    hp.connect(g);
-    g.connect(shaper);
-    src.start(0);
   }
 
   return ctx.startRendering();
 }
 
 /**
- * A short, dark room. Not a concert hall — a tonbak played in a large space
- * loses its attack, and the attack is where the technique lives. This is
- * closer to a carpeted room with the drum a metre away.
+ * A short, dark room. Not a hall — a tonbak played in a large space loses its
+ * attack, and the attack is where the technique lives. Closer to a carpeted
+ * room with the drum a metre away.
  */
-export function renderRoomImpulse(ctx, seconds = 1.1) {
+export function renderRoomImpulse(ctx, seconds = 0.9) {
   const rate = ctx.sampleRate;
   const len = Math.ceil(seconds * rate);
   const off = new OfflineAudioContext(2, len, rate);
@@ -169,16 +213,12 @@ export function renderRoomImpulse(ctx, seconds = 1.1) {
     const data = buf.getChannelData(ch);
     for (let i = 0; i < len; i++) {
       const t = i / len;
-      // Slight pre-delay, exponential decay, and a gentle high-frequency roll-off
-      // baked in by tilting the noise as it decays.
-      const env = Math.pow(1 - t, 3.2);
-      data[i] = (rand() * 2 - 1) * env;
+      data[i] = (rand() * 2 - 1) * Math.pow(1 - t, 3.4);
     }
-    // Cheap one-pole lowpass so the tail darkens as it fades.
+    // One-pole lowpass that closes as the tail fades, so it darkens with time.
     let z = 0;
     for (let i = 0; i < len; i++) {
-      const t = i / len;
-      const coef = 0.28 + 0.5 * t;
+      const coef = 0.3 + 0.5 * (i / len);
       z += (data[i] - z) * (1 - coef);
       data[i] = z * 0.9;
     }
@@ -193,7 +233,7 @@ export function renderRoomImpulse(ctx, seconds = 1.1) {
 
 /**
  * Renders every stroke's variants. Returns { tom: [AudioBuffer x4], ... }.
- * Called once at startup; takes well under a second on a modern phone.
+ * Called once at startup; well under a second on a modern phone.
  */
 export async function renderAllStrokes(strokes, sampleRate) {
   const out = {};
@@ -203,7 +243,6 @@ export async function renderAllStrokes(strokes, sampleRate) {
     const stroke = strokes[key];
     out[key] = new Array(VARIANTS);
     for (let v = 0; v < VARIANTS; v++) {
-      // Seed from the stroke name so variants are stable across sessions.
       let seed = v * 7919 + 13;
       for (let i = 0; i < key.length; i++) seed = (seed * 31 + key.charCodeAt(i)) >>> 0;
       jobs.push(
@@ -216,11 +255,10 @@ export async function renderAllStrokes(strokes, sampleRate) {
 
   await Promise.all(jobs);
 
-  // Scale each stroke to a known peak. The modal sums are additive, so a
-  // stroke with many partials lands hotter than one with few for reasons
-  // that have nothing to do with how loud it should be. Normalising here
-  // makes the `gain` field in strokes.js the only thing that sets balance,
-  // and leaves consistent headroom under the limiter.
+  // Scale each stroke to a known peak, with one factor across its variants so
+  // their relative dynamics survive. Resonator output level depends on Q and
+  // mode count for reasons unrelated to how loud a stroke should be, so this
+  // leaves `gain` in strokes.js as the only thing setting balance.
   for (const key of Object.keys(out)) {
     let peak = 0;
     for (const buf of out[key]) {
@@ -231,7 +269,6 @@ export async function renderAllStrokes(strokes, sampleRate) {
       }
     }
     if (peak < 1e-6) continue;
-    // One factor across all variants, so their relative dynamics survive.
     const scale = 0.95 / peak;
     for (const buf of out[key]) {
       const d = buf.getChannelData(0);
